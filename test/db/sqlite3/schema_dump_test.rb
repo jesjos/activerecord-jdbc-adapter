@@ -17,7 +17,7 @@ class SQLite3SchemaDumpTest < Test::Unit::TestCase
     begin
       output = standard_dump
       assert_match %r{create_table "test.some_records"}, output
-      assert_match %r{add_index "test.some_records"}, output
+      assert_match %r{add_index "test.some_records"}, output unless ar_version('5.0')
     ensure
       ActiveRecord::Base.connection.drop_table('test.some_records')
     end

@@ -105,6 +105,10 @@ module ArJdbc
     # @private
     class BindSubstitution < ::Arel::Visitors::SQLite
       include ::Arel::Visitors::BindVisitor
+
+      def preparable
+        true
+      end 
     end if defined? ::Arel::Visitors::BindVisitor
 
     ADAPTER_NAME = 'SQLite'.freeze
@@ -231,6 +235,17 @@ module ArJdbc
       else
         super
       end
+    end unless AR50
+
+    # @private since AR 4.2
+    def _quote(value)
+      return value if sql_literal?(value)
+
+      if value.kind_of?(ActiveRecord::Type::Binary::Data)
+        "x'#{value.hex}'"
+      else
+        super
+      end
     end
 
     def quote_table_name_for_assignment(table, attr)
@@ -246,7 +261,7 @@ module ArJdbc
     # Includes microseconds if the value is a Time responding to usec.
     # @override
     def quoted_date(value)
-      if value.acts_like?(:time) && value.respond_to?(:usec)
+      if value.acts_like?(:time) && value.respond_to?(:usec) && !AR50
         "#{super}.#{sprintf("%06d", value.usec)}"
       else
         super
@@ -266,8 +281,38 @@ module ArJdbc
     end
 
     # @override
+    def data_sources
+      select_values("SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name <> 'sqlite_sequence'", 'SCHEMA')
+    end
+
+    # @override
     def table_exists?(table_name)
       table_name && tables(nil, table_name).any?
+    end
+
+    # @override
+    def data_source_exists?(table_name)
+      return false unless table_name.present?
+
+      sql = "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name <> 'sqlite_sequence'"
+      sql << " AND name = #{quote(table_name)}"
+
+      select_values(sql, 'SCHEMA').any?
+    end
+
+    # @override
+    def views
+      select_values("SELECT name FROM sqlite_master WHERE type = 'view' AND name <> 'sqlite_sequence'", 'SCHEMA')
+    end
+
+    # @override
+    def view_exists?(view_name)
+      return false unless view_name.present?
+
+      sql = "SELECT name FROM sqlite_master WHERE type = 'view' AND name <> 'sqlite_sequence'"
+      sql << " AND name = #{quote(view_name)}"
+
+      select_values(sql, 'SCHEMA').any?
     end
 
     def truncate_fake(table_name, name = nil)
@@ -412,7 +457,13 @@ module ArJdbc
     # @override
     def remove_index!(table_name, index_name)
       execute "DROP INDEX #{quote_column_name(index_name)}"
-    end
+    end unless AR50
+
+    # @override
+    def remove_index(table_name, options = {})
+      index_name = index_name_for_remove(table_name, options)
+      execute "DROP INDEX #{quote_column_name(index_name)}"
+    end if AR50
 
     # @override
     def rename_table(table_name, new_name)

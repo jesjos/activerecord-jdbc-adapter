@@ -189,6 +189,7 @@ class SQLite3SimpleTest < Test::Unit::TestCase
 
     columns = ActiveRecord::Base.connection.columns("entries")
     assert column = columns.find{ |c| c.name == "test_change_column" }
+
     assert_equal column.type, :string
 
     assert_nothing_raised do

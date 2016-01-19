@@ -31,7 +31,12 @@ class SQLite3RakeTest < Test::Unit::TestCase
     Rake::Task["db:test:purge"].invoke
 
     ActiveRecord::Base.establish_connection db_config.merge :database => db_name
-    assert_false ActiveRecord::Base.connection.table_exists?('users')
+
+    if ar_version('5.0')
+      assert_false ActiveRecord::Base.connection.data_source_exists?('users')
+    else
+      assert_false ActiveRecord::Base.connection.table_exists?('users')
+    end
     ActiveRecord::Base.connection.disconnect!
   end
 
@@ -55,7 +60,11 @@ class SQLite3RakeTest < Test::Unit::TestCase
       Rake::Task["db:structure:load"].invoke
 
       ActiveRecord::Base.establish_connection db_config.merge :database => db_name
-      assert ActiveRecord::Base.connection.table_exists?('users')
+      if ar_version('5.0')
+        assert ActiveRecord::Base.connection.data_source_exists?('users')
+      else
+        assert ActiveRecord::Base.connection.table_exists?('users')
+      end
       ActiveRecord::Base.connection.disconnect!
     ensure
       File.delete(structure_sql) if File.exists?(structure_sql)
