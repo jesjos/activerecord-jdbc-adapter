@@ -41,7 +41,9 @@ module ArJdbc
 
             next if column_name == from_primary_key
 
-            @definition.column(column_name, column.type,
+            type = AR50 ? column.sql_type : column.type
+
+            @definition.column(column_name, type,
               :limit => column.limit, :default => column.default,
               :precision => column.precision, :scale => column.scale,
               :null => column.null)
@@ -94,7 +96,11 @@ module ArJdbc
           sql = "INSERT INTO #{quoted_to} (#{quoted_columns}) VALUES ("
 
           column_values = columns.map do |col|
-            quote(row[column_mappings[col]], raw_column_mappings[col])
+            if AR50
+              quote(row[column_mappings[col]])
+            else
+              quote(row[column_mappings[col]], raw_column_mappings[col])
+            end
           end
 
           sql << column_values * ', '

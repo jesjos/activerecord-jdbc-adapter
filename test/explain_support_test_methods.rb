@@ -26,7 +26,11 @@ module ExplainSupportTestMethods
     arel.join(User.arel_table).on(arel_table[:user_id].eq User.arel_table[:id])
     arel.where arel_table[:rating].gt arel_bind_param
 
-    binds = [ [ Entry.columns.find { |col| col.name.to_s == 'rating' }, 0 ] ]
+    binds = if ar_version('5.0')
+      [ActiveRecord::Relation::QueryAttribute.new('rating', 0, ActiveRecord::Type::Value.new)]
+    else
+      [ [ Entry.columns.find { |col| col.name.to_s == 'rating' }, 0 ] ]
+    end
     pp = ActiveRecord::Base.connection.explain(arel, binds)
     puts "\n"; puts pp if PRINT_EXPLAIN_OUTPUT
     assert_instance_of String, pp

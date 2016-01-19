@@ -11,7 +11,11 @@ module SchemaDumpTestMethods
     connection.add_index :entries, :title
     StringIO.open do |io|
       ActiveRecord::SchemaDumper.dump(connection, io)
-      assert_match(/add_index "entries",/, io.string)
+      if ar_version('5.0')
+        assert_match(/t.index \["title"\]/, io.string)
+      else
+        assert_match(/add_index "entries",/, io.string)
+      end
     end
   ensure
     connection.remove_index :entries, :title
@@ -61,7 +65,7 @@ module SchemaDumpTestMethods
         end
       end
 
-      assert_equal 1, lengths.uniq.length
+      assert_equal 1, lengths.uniq.compact.length
     end
   end
 
@@ -110,8 +114,10 @@ module SchemaDumpTestMethods
 
   def test_schema_dump_includes_decimal_options
     output = standard_dump(StringIO.new, [/^[^d]/]) # keep db_types
-    # t.column :sample_small_decimal, :decimal, :precision => 3, :scale => 2, :default => 3.14
-    if ar_version('4.0')
+    # t.column :sample_small_decimal, :decimal, :precision => 3, :scale => 2, :default => "3.14"
+    if ar_version('5.0')
+      assert_match %r{precision: 3,[[:space:]]+scale: 2,[[:space:]]+default: "3.14"}, output
+    elsif ar_version('4.0')
       assert_match %r{precision: 3,[[:space:]]+scale: 2,[[:space:]]+default: 3.14}, output
     else
       assert_match %r{:precision => 3,[[:space:]]+:scale => 2,[[:space:]]+:default => 3.14}, output

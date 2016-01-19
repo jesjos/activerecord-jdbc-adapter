@@ -201,9 +201,19 @@ module SimpleTestMethods
   end
 
   def test_table_exists?
+    skip "deprecated on AR >= 5.0" if ar_version('5.0')
+
     assert_true  ActiveRecord::Base.connection.table_exists? 'entries'
     assert_false ActiveRecord::Base.connection.table_exists? 'blahbls'
     assert ! ActiveRecord::Base.connection.table_exists?(nil)
+  end
+
+  def test_data_source_exists?
+    skip "not supported on AR < 5.0" unless ar_version('5.0')
+
+    assert_true  ActiveRecord::Base.connection.data_source_exists? 'entries'
+    assert_false ActiveRecord::Base.connection.data_source_exists? 'blahbls'
+    assert ! ActiveRecord::Base.connection.data_source_exists?(nil)
   end
 
   def test_entries_empty
@@ -861,7 +871,7 @@ module SimpleTestMethods
   def test_raw_delete_bind_param_with_q_mark
     entry = Entry.create! :title => 'foo?!?', :content => '..........'
 
-    arel = Arel::DeleteManager.new Entry.arel_engine
+    arel = ar_version('5.0') ? Arel::DeleteManager.new : Arel::DeleteManager.new(Entry.arel_engine)
     arel.from arel_table = Entry.arel_table
     if prepared_statements?
       arel.where arel_table[:title].eq(new_bind_param)
@@ -1024,7 +1034,7 @@ module SimpleTestMethods
   end if Test::Unit::TestCase.ar_version('3.1')
 
   def insert_manager(table, columns = {})
-    arel = Arel::InsertManager.new table.arel_engine
+    arel = ar_version('5.0') ? Arel::InsertManager.new : Arel::InsertManager.new(table.arel_engine)
     arel.into table.arel_table
     if columns
       values = columns.map do |name, value|
@@ -1052,7 +1062,7 @@ module SimpleTestMethods
   end
 
   def update_manager(table, columns = {})
-    arel = Arel::UpdateManager.new table.arel_engine
+    arel = ar_version('5.0') ? Arel::UpdateManager.new : Arel::UpdateManager.new(table.arel_engine)
     arel.table table.arel_table
     if columns
       values = columns.map do |name, value|
@@ -1070,12 +1080,18 @@ module SimpleTestMethods
     skip_exec_for_native_adapter
 
     entry = Entry.create! :title => '42'
-    arel = Arel::DeleteManager.new Entry.arel_engine
+    arel = ar_version('5.0') ? Arel::DeleteManager.new : Arel::DeleteManager.new(Entry.arel_engine)
     arel.from arel_table = Entry.arel_table
     arel.where arel_table[:title].eq(new_bind_param)
     column = Entry.columns_hash['title']
 
-    connection.exec_delete arel, 'DELETE(entry)', [ [ column, "42" ] ]
+    binds = if ar_version('5.0')
+      [ActiveRecord::Relation::QueryAttribute.new(column.name, "42", ActiveRecord::Type::Value.new)]
+    else
+      [ [ column, "42" ] ]
+    end
+
+    connection.exec_delete arel, 'DELETE(entry)', binds
     assert_nil Entry.where(:id => entry.id).first
   end
 
@@ -1304,6 +1320,8 @@ module SimpleTestMethods
   end
 
   def test_marshal
+    skip 'not supported on AR >= 5.0' if ar_version('5.0')
+
     expected = DbType.create!(
       :sample_string => 'a string',
       :sample_text => '1234' * 100,
@@ -1323,6 +1341,8 @@ module SimpleTestMethods
   end
 
   def test_marshal_new
+    skip 'not supported on AR >= 5.0' if ar_version('5.0')
+
     marshalled = Marshal.dump(DbType.new)
     actual = Marshal.load(marshalled)
 
