@@ -5,13 +5,25 @@ module ActiveRecord::ConnectionAdapters
     # Type casting methods taken from AR 4.1's Column class.
     # @private Simply to quickly "hack-in" 4.2 compatibility.
     module TypeCast
-
-      TRUE_VALUES = Column::TRUE_VALUES
-      FALSE_VALUES = Column::FALSE_VALUES
+      TRUE_VALUES = Column::TRUE_VALUES if Column.const_defined?(:TRUE_VALUES)
+      FALSE_VALUES = if Column.const_defined?(:FALSE_VALUES)
+        Column::FALSE_VALUES
+      else
+        ActiveModel::Type::Boolean::FALSE_VALUES
+      end
 
       #module Format
-      ISO_DATE = Column::Format::ISO_DATE
-      ISO_DATETIME = Column::Format::ISO_DATETIME
+      ISO_DATE = if defined?(Column::Format::ISO_DATE)
+        Column::Format::ISO_DATE
+      else
+        ActiveModel::Type::Date::ISO_DATE
+      end
+
+      ISO_DATETIME = if defined?(Column::Format::ISO_DATETIME)
+        Column::Format::ISO_DATETIME
+      else
+        ActiveModel::Type::Helpers::TimeValue::ISO_DATETIME
+      end
       #end
 
       # Used to convert from BLOBs to Strings
@@ -58,7 +70,16 @@ module ActiveRecord::ConnectionAdapters
         else
           TRUE_VALUES.include?(value)
         end
-      end
+      end if const_defined?(:TRUE_VALUES) # removed on AR 5.0
+
+      # convert something to a boolean
+      def value_to_boolean(value)
+        if value.is_a?(String) && value.empty?
+          nil
+        else
+          !FALSE_VALUES.include?(value)
+        end
+      end unless const_defined?(:TRUE_VALUES)
 
       # Used to convert values to integer.
       # handle the case when an integer column is used to store boolean values

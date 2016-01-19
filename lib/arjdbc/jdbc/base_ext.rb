@@ -1,17 +1,31 @@
 module ActiveRecord
   # ActiveRecord::Base extensions.
-  Base.class_eval do
-    class << self
-      # Allow adapters to provide their own {#reset_column_information} method.
-      # @note This only affects the current thread's connection.
-      def reset_column_information_with_arjdbc # :nodoc:
-        # invoke the adapter-specific reset_column_information method
-        connection.reset_column_information if connection.respond_to?(:reset_column_information)
-        reset_column_information_without_arjdbc
+  
+  unless ArJdbc::AR50
+    Base.class_eval do
+      class << self
+        # Allow adapters to provide their own {#reset_column_information} method.
+        # @note This only affects the current thread's connection.
+        def reset_column_information_with_arjdbc # :nodoc:
+          # invoke the adapter-specific reset_column_information method
+          connection.reset_column_information if connection.respond_to?(:reset_column_information)
+          reset_column_information_without_arjdbc
+        end
+        unless method_defined?("reset_column_information_without_arjdbc")
+          alias_method_chain :reset_column_information, :arjdbc
+        end
       end
-      unless method_defined?("reset_column_information_without_arjdbc")
-        alias_method_chain :reset_column_information, :arjdbc
+    end
+  else
+    class << Base
+      m = Module.new do
+        def reset_column_information
+          connection.reset_column_information if connection.respond_to?(:reset_column_information)
+          super
+        end
       end
+      
+      self.prepend(m)
     end
   end
 

@@ -75,7 +75,11 @@ module ActiveRecord
         # NOTE: adapter spec's init_connection only called if instantiated here :
         connection ||= jdbc_connection_class(spec).new(@config, self)
 
-        super(connection, logger)
+        if ArJdbc::AR50
+          super(connection, logger, @config)
+        else
+          super(connection, logger)
+        end
 
         # kind of like `extend ArJdbc::MyDB if self.class == JdbcAdapter` :
         klass = @config[:adapter_class]
