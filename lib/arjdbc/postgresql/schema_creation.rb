@@ -1,6 +1,6 @@
 module ArJdbc
   module PostgreSQL
-    # @private copied (and adjusted) from native adapter 4.0/4.1/4.2
+    # @private copied (and adjusted) from native adapter 4.0/4.1/4.2/5.0
     class SchemaCreation < ::ActiveRecord::ConnectionAdapters::AbstractAdapter::SchemaCreation
 
       private
@@ -27,7 +27,12 @@ module ArJdbc
           add_column_options!(sql, column_options(o))
         end
         sql
-      end if AR42
+      end if AR42 && !AR50
+
+      def visit_ColumnDefinition(o)
+        o.sql_type = type_to_sql(o.type, o.limit, o.precision, o.scale, o.array)
+        super
+      end if AR50
 
       def add_column_options!(sql, options)
         if options[:array] || options[:column].try(:array)
@@ -40,7 +45,14 @@ module ArJdbc
         else
           super
         end
-      end
+      end unless AR50
+
+      def add_column_options!(sql, options)
+        if options[:collation]
+          sql << " COLLATE \"#{options[:collation]}\""
+        end
+        super
+      end if AR50
 
       def type_for_column(column)
         if column.array
@@ -48,7 +60,7 @@ module ArJdbc
         else
           super
         end
-      end if AR42
+      end if AR42 && !AR50
 
     end
 

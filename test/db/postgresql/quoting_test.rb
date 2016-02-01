@@ -78,9 +78,9 @@ class PostgreSQLQuotingTest < Test::Unit::TestCase
   end
 
   def test_quote_time_usec
-    assert_equal "'1970-01-01 00:00:00.000000'", connection.quote(Time.at(0))
+    assert_equal "'1970-01-01 00:00:00.500000'", connection.quote(Time.at(0.5))
     if ar_version('4.0')
-      assert_equal "'1970-01-01 00:00:00.000000'", connection.quote(Time.at(0).to_datetime)
+      assert_equal "'1970-01-01 00:00:00.500000'", connection.quote(Time.at(0.5).to_datetime)
     else
       #assert_equal "'1970-01-01 00:00:00'", connection.quote(Time.at(0).to_datetime)
     end

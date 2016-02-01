@@ -3,7 +3,9 @@ require 'thread'
 module ArJdbc
   module PostgreSQL
 
-    if AR42
+    if AR50
+      require 'active_record/connection_adapters/postgresql/oid'
+    elsif AR42
       require 'active_record/connection_adapters/postgresql/oid'
       require 'arjdbc/postgresql/oid/bytea.rb'
     else
@@ -164,11 +166,11 @@ module ArJdbc
       end unless AR42
 
       def initialize_type_map(m)
-        register_class_with_limit m, 'int2', OID::Integer
-        register_class_with_limit m, 'int4', OID::Integer
-        register_class_with_limit m, 'int8', OID::Integer
+        register_class_with_limit m, 'int2', AR50 ? Type::Integer : OID::Integer
+        register_class_with_limit m, 'int4', AR50 ? Type::Integer : OID::Integer
+        register_class_with_limit m, 'int8', AR50 ? Type::Integer : OID::Integer
         m.alias_type 'oid', 'int2'
-        m.register_type 'float4', OID::Float.new
+        m.register_type 'float4', AR50 ? Type::Float.new : OID::Float.new
         m.alias_type 'float8', 'float4'
         m.register_type 'text', Type::Text.new
         register_class_with_limit m, 'varchar', Type::String
@@ -179,8 +181,8 @@ module ArJdbc
         register_class_with_limit m, 'bit', OID::Bit
         register_class_with_limit m, 'varbit', OID::BitVarying
         m.alias_type 'timestamptz', 'timestamp'
-        m.register_type 'date', OID::Date.new
-        m.register_type 'time', OID::Time.new
+        m.register_type 'date', AR50 ? Type::Date.new : OID::Date.new
+        m.register_type 'time', OID::Time.new unless AR50
 
         m.register_type 'money', OID::Money.new
         m.register_type 'bytea', OID::Bytea.new
@@ -197,18 +199,35 @@ module ArJdbc
         m.register_type 'citext', OID::SpecializedString.new(:citext)
         m.register_type 'ltree', OID::SpecializedString.new(:ltree)
 
-        # FIXME: why are we keeping these types as strings?
-        m.alias_type 'interval', 'varchar'
-        m.alias_type 'path', 'varchar'
-        m.alias_type 'line', 'varchar'
-        m.alias_type 'polygon', 'varchar'
-        m.alias_type 'circle', 'varchar'
-        m.alias_type 'lseg', 'varchar'
-        m.alias_type 'box', 'varchar'
+        if AR50
+          m.register_type 'line', OID::SpecializedString.new(:line)
+          m.register_type 'lseg', OID::SpecializedString.new(:lseg)
+          m.register_type 'box', OID::SpecializedString.new(:box)
+          m.register_type 'path', OID::SpecializedString.new(:path)
+          m.register_type 'polygon', OID::SpecializedString.new(:polygon)
+          m.register_type 'circle', OID::SpecializedString.new(:circle)
+        end
 
-        m.register_type 'timestamp' do |_, _, sql_type|
-          precision = extract_precision(sql_type)
-          OID::DateTime.new(precision: precision)
+        m.alias_type 'interval', 'varchar'
+        
+        unless AR50
+          # FIXME: why are we keeping these types as strings?
+          m.alias_type 'path', 'varchar'
+          m.alias_type 'line', 'varchar'
+          m.alias_type 'polygon', 'varchar'
+          m.alias_type 'circle', 'varchar'
+          m.alias_type 'lseg', 'varchar'
+          m.alias_type 'box', 'varchar'
+        end
+
+        if AR50
+          register_class_with_precision m, 'time', Type::Time
+          register_class_with_precision m, 'timestamp', OID::DateTime
+        else
+          m.register_type 'timestamp' do |_, _, sql_type|
+            precision = extract_precision(sql_type)
+            OID::DateTime.new(precision: precision)
+          end
         end
 
         m.register_type 'numeric' do |_, fmod, sql_type|
@@ -233,6 +252,7 @@ module ArJdbc
 
         load_additional_types(m)
       end if AR42
+
 
       def load_additional_types(type_map, oids = nil)
         if supports_ranges?

@@ -72,6 +72,8 @@ class PostgreSQLHstoreTest < Test::Unit::TestCase
   end
 
   def test_type_cast_hstore
+    skip "deprecated on AR >= 5.0" if ar_version('5.0')
+
     assert @column
 
     data = "\"1\"=>\"2\""
@@ -85,22 +87,32 @@ class PostgreSQLHstoreTest < Test::Unit::TestCase
   end
 
   def test_gen1
+    skip "deprecated on AR >= 5.0" if ar_version('5.0')
+
     assert_equal(%q(" "=>""), hstore_to_string(@column, {' '=>''}))
   end
 
   def test_gen2
+    skip "deprecated on AR >= 5.0" if ar_version('5.0')
+
     assert_equal(%q(","=>""), hstore_to_string(@column, {','=>''}))
   end
 
   def test_gen3
+    skip "deprecated on AR >= 5.0" if ar_version('5.0')
+
     assert_equal(%q("="=>""), hstore_to_string(@column, {'='=>''}))
   end
 
   def test_gen4
+    skip "deprecated on AR >= 5.0" if ar_version('5.0')
+
     assert_equal(%q(">"=>""), hstore_to_string(@column, {'>'=>''}))
   end
 
   def test_parse
+    skip "deprecated on AR >= 5.0" if ar_version('5.0')
+
     assert_equal({'a'=>nil,'b'=>nil,'c'=>'NuLl','null'=>'c'}, type_cast(@column, 'a=>null,b=>NuLl,c=>"NuLl",null=>c'))
     assert_equal({" " => " "},  type_cast(@column, "\\ =>\\ "))
     assert_equal({"=" => ">"}, type_cast(@column, "==>>"))

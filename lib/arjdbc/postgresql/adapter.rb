@@ -13,7 +13,7 @@ module ArJdbc
     # @private
     AR42_COMPAT = AR42
 
-    require 'arjdbc/postgresql/column'
+    require 'arjdbc/postgresql/column' unless AR50
     require 'arjdbc/postgresql/explain_support'
     require 'arjdbc/postgresql/schema_creation' # AR 4.x
     # @private
@@ -54,6 +54,10 @@ module ArJdbc
     # @private
     class BindSubstitution < ::Arel::Visitors::PostgreSQL
       include ::Arel::Visitors::BindVisitor
+
+      def preparable
+        true
+      end
     end if defined? ::Arel::Visitors::BindVisitor
 
     ADAPTER_NAME = 'PostgreSQL'.freeze
@@ -141,8 +145,8 @@ module ArJdbc
     ActiveRecordError = ::ActiveRecord::ActiveRecordError
 
     # Maps logical Rails types to PostgreSQL-specific data types.
-    def type_to_sql(type, limit = nil, precision = nil, scale = nil)
-      case type.to_s
+    def type_to_sql(type, limit = nil, precision = nil, scale = nil, array = nil)
+      sql = case type.to_s
       when 'binary'
         # PostgreSQL doesn't support limits on binary (bytea) columns.
         # The hard limit is 1Gb, because of a 32-bit size field, and TOAST.
@@ -158,24 +162,27 @@ module ArJdbc
         else raise(ActiveRecordError, "The limit on text can be at most 1GB - 1byte.")
         end
       when 'integer'
-        return 'integer' unless limit
-
         case limit
           when 1, 2; 'smallint'
-          when 3, 4; 'integer'
+          when nil, 3, 4; 'integer'
           when 5..8; 'bigint'
           else raise(ActiveRecordError, "No integer type has byte size #{limit}. Use a numeric with precision 0 instead.")
         end
-      when 'datetime'
-        return super unless precision
-
-        case precision
-          when 0..6; "timestamp(#{precision})"
-          else raise(ActiveRecordError, "No timestamp type has precision of #{precision}. The allowed range of precision is from 0 to 6")
-        end
       else
-        super
+        if !AR50 && type.to_s == 'datetime'
+          return super(type, limit, precision, scale) unless precision
+
+          case precision
+            when 0..6; "timestamp(#{precision})"
+            else raise(ActiveRecordError, "No timestamp type has precision of #{precision}. The allowed range of precision is from 0 to 6")
+          end
+        end
+
+        super(type, limit, precision, scale)
       end
+
+      sql << '[]' if array && type != :primary_key
+      sql
     end
 
     def type_cast(value, column, array_member = false)
@@ -299,7 +306,15 @@ module ArJdbc
       spec[:array] = 'true' if column.respond_to?(:array) && column.array
       spec[:default] = "\"#{column.default_function}\"" if column.default_function
       spec
-    end if AR40
+    end if AR40 && !AR50
+
+    # Adds `:array` option to the default set provided by the `AbstractAdapter`.
+    # @override
+    def prepare_column_options(column)
+      spec = super
+      spec[:array] = 'true' if column.array?
+      spec
+    end if AR50
 
     # Adds `:array` as a valid migration key.
     # @override
@@ -1017,7 +1032,7 @@ module ArJdbc
     # @override
     def quoted_date(value)
       result = super
-      if value.acts_like?(:time) && value.respond_to?(:usec)
+      if value.acts_like?(:time) && value.respond_to?(:usec) && !AR50
         result = "#{result}.#{sprintf("%06d", value.usec)}"
       end
       result = "#{result.sub(/^-/, '')} BC" if value.year < 0
@@ -1027,7 +1042,7 @@ module ArJdbc
     # @override
     def supports_disable_referential_integrity?
       true
-    end
+    end unless AR50
 
     def disable_referential_integrity
       if supports_disable_referential_integrity?
@@ -1046,7 +1061,7 @@ module ArJdbc
           execute(tables.collect { |name| "ALTER TABLE #{quote_table_name(name)} ENABLE TRIGGER USER" }.join(";"))
         end
       end
-    end
+    end unless AR50
 
     def rename_table(table_name, new_name)
       execute "ALTER TABLE #{quote_table_name(table_name)} RENAME TO #{quote_table_name(new_name)}"
@@ -1067,8 +1082,7 @@ module ArJdbc
       default = options[:default]
       notnull = options[:null] == false
 
-      sql_type = type_to_sql(type, options[:limit], options[:precision], options[:scale])
-      sql_type << "[]" if options[:array]
+      sql_type = type_to_sql(type, options[:limit], options[:precision], options[:scale], options[:array])
 
       # Add the column.
       execute("ALTER TABLE #{quote_table_name(table_name)} ADD COLUMN #{quote_column_name(column_name)} #{sql_type}")
@@ -1078,20 +1092,19 @@ module ArJdbc
     end if ::ActiveRecord::VERSION::MAJOR < 4
 
     # @private documented above
-    def add_column(table_name, column_name, type, options = {}); super end if AR42
+    def add_column(table_name, column_name, type, options = {}); super; end if AR42
 
     # Changes the column of a table.
     def change_column(table_name, column_name, type, options = {})
       quoted_table_name = quote_table_name(table_name)
       quoted_column_name = quote_table_name(column_name)
 
-      sql_type = type_to_sql(type, options[:limit], options[:precision], options[:scale])
-      sql_type << "[]" if options[:array]
+      sql_type = type_to_sql(type, options[:limit], options[:precision], options[:scale], options[:array])
 
       sql = "ALTER TABLE #{quoted_table_name} ALTER COLUMN #{quoted_column_name} TYPE #{sql_type}"
       sql << " USING #{options[:using]}" if options[:using]
       if options[:cast_as]
-        sql << " USING CAST(#{quoted_column_name} AS #{type_to_sql(options[:cast_as], options[:limit], options[:precision], options[:scale])})"
+        sql << " USING CAST(#{quoted_column_name} AS #{type_to_sql(options[:cast_as], options[:limit], options[:precision], options[:scale], options[:array])})"
       end
       begin
         execute sql
@@ -1175,9 +1188,16 @@ module ArJdbc
       execute "CREATE #{index_type} INDEX #{index_algorithm} #{quote_column_name(index_name)} ON #{quote_table_name(table_name)} #{index_using} (#{index_columns})#{index_options}"
     end if AR40
 
+    # @override
     def remove_index!(table_name, index_name)
       execute "DROP INDEX #{quote_table_name(index_name)}"
-    end
+    end unless AR50
+
+    # @override
+    def remove_index(table_name, options = {})
+      index_name = index_name_for_remove(table_name, options)
+      execute "DROP INDEX #{quote_table_name(index_name)}"
+    end if AR50
 
     def rename_index(table_name, old_name, new_name)
       validate_index_length!(table_name, new_name) if respond_to?(:validate_index_length!)
@@ -1246,7 +1266,7 @@ module ArJdbc
 
         column.new(name, default, oid, type, ! notnull, fmod, self)
       end
-    end
+    end unless AR42
 
     # @private documented above
     def columns(table_name)
@@ -1264,7 +1284,7 @@ module ArJdbc
 
         column.new(name, default_value, oid_type, type, ! notnull, default_function, oid, self)
       end
-    end if AR42
+    end if AR42 && !AR50
 
     # @private only for API compatibility
     def new_column(name, default, cast_type, sql_type = nil, null = true, default_function = nil)
@@ -1308,6 +1328,16 @@ module ArJdbc
       select_values(TABLES_SQL, 'SCHEMA')
     end
 
+    def data_sources
+      select_values(<<-SQL, 'SCHEMA')
+        SELECT c.relname
+        FROM pg_class c
+        LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind IN ('r', 'v','m') -- (r)elation/table, (v)iew, (m)aterialized view
+        AND n.nspname = ANY (current_schemas(false))
+      SQL
+    end
+
     # @private
     TABLE_EXISTS_SQL_PREFIX =  'SELECT COUNT(*) as table_count FROM pg_class c'
     TABLE_EXISTS_SQL_PREFIX << ' LEFT JOIN pg_namespace n ON n.oid = c.relnamespace'
@@ -1333,6 +1363,44 @@ module ArJdbc
       log(sql, 'SCHEMA', binds) do
         @connection.execute_query_raw(sql, binds).first['table_count'] > 0
       end
+    end
+
+    def data_source_exists?(name)
+      schema, table = extract_schema_and_table(name.to_s)
+      return false unless table
+
+      select_value(<<-SQL, 'SCHEMA').to_i > 0
+          SELECT COUNT(*)
+          FROM pg_class c
+          LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relkind IN ('r','v','m') -- (r)elation/table, (v)iew, (m)aterialized view
+          AND c.relname = '#{table}'
+          AND n.nspname = #{schema ? "'#{schema}'" : 'ANY (current_schemas(false))'}
+      SQL
+    end
+
+    def views
+      select_values(<<-SQL, 'SCHEMA')
+        SELECT c.relname
+        FROM pg_class c
+        LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind IN ('v','m') -- (v)iew, (m)aterialized view
+        AND n.nspname = ANY (current_schemas(false))
+      SQL
+    end
+
+    def view_exists?(view_name)
+      schema, table = extract_schema_and_table(name.to_s)
+      return false unless table
+
+      select_values(<<-SQL, 'SCHEMA').any?
+        SELECT c.relname
+        FROM pg_class c
+        LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind IN ('v','m') -- (v)iew, (m)aterialized view
+        AND c.relname = '#{table}'
+        AND n.nspname = #{schema ? "'#{schema}'" : 'ANY (current_schemas(false))'}
+      SQL
     end
 
     def drop_table(table_name, options = {})
@@ -1464,11 +1532,15 @@ end
 require 'arjdbc/util/quoted_cache'
 
 module ActiveRecord::ConnectionAdapters
+  if ::ArJdbc::AR50
+    require 'active_record/connection_adapters/postgresql/type_metadata'
+    require 'active_record/connection_adapters/postgresql/column'
+  else
+    remove_const(:PostgreSQLColumn) if const_defined?(:PostgreSQLColumn)
 
-  remove_const(:PostgreSQLColumn) if const_defined?(:PostgreSQLColumn)
-
-  class PostgreSQLColumn < JdbcColumn
-    include ::ArJdbc::PostgreSQL::Column
+    class PostgreSQLColumn < JdbcColumn
+      include ::ArJdbc::PostgreSQL::Column
+    end
   end
 
   # NOTE: seems needed on 4.x due loading of '.../postgresql/oid' which
@@ -1479,12 +1551,27 @@ module ActiveRecord::ConnectionAdapters
     include ::ArJdbc::PostgreSQL
     include ::ArJdbc::PostgreSQL::ExplainSupport
 
+    if ::ArJdbc::AR50
+      require 'active_record/connection_adapters/postgresql/utils'
+      require 'active_record/connection_adapters/postgresql/quoting'
+      require 'active_record/connection_adapters/postgresql/referential_integrity'
+      require 'active_record/connection_adapters/postgresql/schema_statements'
+      require 'active_record/connection_adapters/postgresql/schema_dumper'
+
+      require 'arjdbc/postgresql/ar50_support'
+
+      include PostgreSQL::Quoting
+      include PostgreSQL::ReferentialIntegrity
+      include PostgreSQL::SchemaStatements
+      include PostgreSQL::ColumnDumper
+    else
+      include ::ArJdbc::PostgreSQL::ColumnHelpers if ::ArJdbc::AR42
+    end
+
     require 'arjdbc/postgresql/oid_types' if ::ArJdbc::AR40
     include ::ArJdbc::PostgreSQL::OIDTypes if ::ArJdbc::PostgreSQL.const_defined?(:OIDTypes)
 
-    load 'arjdbc/postgresql/_bc_time_cast_patch.rb' if ::ArJdbc::AR42
-
-    include ::ArJdbc::PostgreSQL::ColumnHelpers if ::ArJdbc::AR42
+    load 'arjdbc/postgresql/_bc_time_cast_patch.rb' if ::ArJdbc::AR42 && !::ArJdbc::AR50
 
     include ::ArJdbc::Util::QuotedCache
 
@@ -1513,9 +1600,13 @@ module ActiveRecord::ConnectionAdapters
     ColumnMethods = ActiveRecord::ConnectionAdapters::PostgreSQL::ColumnMethods
     TableDefinition = ActiveRecord::ConnectionAdapters::PostgreSQL::TableDefinition
 
+    def create_table_definition(name, temporary = false, options = nil, as = nil)
+      PostgreSQL::TableDefinition.new(name, temporary, options, as)
+    end if ArJdbc::AR50
+
     def table_definition(*args)
       new_table_definition(TableDefinition, *args)
-    end
+    end unless ArJdbc::AR50
 
     Table = ActiveRecord::ConnectionAdapters::PostgreSQL::Table
 
