@@ -736,7 +736,7 @@ module ActiveRecord
       if ActiveRecord::VERSION::MAJOR > 3
 
       # aliasing #create_table_definition as #table_definition :
-      alias table_definition create_table_definition
+      alias table_definition create_table_definition unless ArJdbc::AR50
 
       # `TableDefinition.new native_database_types, name, temporary, options`
       # and ActiveRecord 4.1 supports optional `as` argument (which defaults
@@ -745,12 +745,16 @@ module ActiveRecord
       # @private
       def create_table_definition(*args)
         table_definition(*args)
-      end
+      end unless ArJdbc::AR50
 
       # @note AR-4x arguments expected: `(name, temporary, options)`
       # @private documented bellow
       def new_table_definition(table_definition, *args)
-        table_definition.new native_database_types, *args
+        if ArJdbc::AR50
+          table_definition.new *args
+        else
+          table_definition.new native_database_types, *args
+        end
       end
       private :new_table_definition
 
