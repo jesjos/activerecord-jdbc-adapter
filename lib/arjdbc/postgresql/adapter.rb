@@ -1582,6 +1582,8 @@ module ActiveRecord::ConnectionAdapters
       super # configure_connection happens in super
 
       @table_alias_length = nil
+      
+      @visitor = Arel::Visitors::PostgreSQL.new self
 
       initialize_type_map(@type_map = Type::HashLookupTypeMap.new) if ::ArJdbc::AR42
 
